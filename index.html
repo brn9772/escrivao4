@@ -377,9 +377,6 @@
             </div>
             <div id="timer" class="timer">00:00:00</div>
             <p id="recording-date" class="text-sm text-gray"></p>
-            <div id="screen-tip" class="hidden mt-3" style="background: #fef3c7; padding: 0.75rem; border-radius: 0.5rem; font-size: 0.875rem; color: #92400e;">
-                💡 <strong>Dica:</strong> A tela ficará ligada durante a gravação. Você pode diminuir o brilho para economizar bateria.
-            </div>
         </div>
         
         <button id="start-recording" class="btn btn-danger mt-4" onclick="startRecording()">
@@ -693,33 +690,39 @@
     
     // ==================== WAKE LOCK (MANTER TELA LIGADA) ====================
     async function requestWakeLock() {
+        // Wake Lock é opcional - se falhar, app continua funcionando
         try {
             if ('wakeLock' in navigator) {
                 wakeLock = await navigator.wakeLock.request('screen');
-                console.log('Wake Lock ativado - tela vai ficar ligada');
+                console.log('✅ Wake Lock ativado - tela ficará ligada');
                 
                 wakeLock.addEventListener('release', () => {
                     console.log('Wake Lock liberado');
                 });
             } else {
-                console.warn('Wake Lock API não disponível neste navegador');
-                alert('⚠️ Aviso: Seu navegador não suporta manter a tela ligada automaticamente.\n\nPara evitar problemas:\n1. Mantenha a tela ligada manualmente durante a gravação\n2. Ou diminua o tempo de desligar tela nas configurações');
+                console.log('ℹ️ Wake Lock não disponível - mantenha tela ligada manualmente');
             }
         } catch (err) {
-            console.error('Erro ao ativar Wake Lock:', err);
+            console.log('ℹ️ Wake Lock não pôde ser ativado:', err.message);
+            // Ignorar erro - app continua funcionando normalmente
         }
     }
     
     function releaseWakeLock() {
-        if (wakeLock !== null) {
-            wakeLock.release()
-                .then(() => {
-                    wakeLock = null;
-                    console.log('Wake Lock liberado com sucesso');
-                })
-                .catch((err) => {
-                    console.error('Erro ao liberar Wake Lock:', err);
-                });
+        try {
+            if (wakeLock !== null) {
+                wakeLock.release()
+                    .then(() => {
+                        wakeLock = null;
+                        console.log('Wake Lock liberado com sucesso');
+                    })
+                    .catch((err) => {
+                        console.log('Erro ao liberar Wake Lock:', err);
+                    });
+            }
+        } catch (err) {
+            console.log('Erro ao tentar liberar Wake Lock:', err);
+            // Ignorar erro
         }
     }
     
@@ -730,8 +733,8 @@
             mediaRecorder = new MediaRecorder(stream);
             audioChunks = [];
             
-            // Manter tela ligada durante gravação
-            await requestWakeLock();
+            // Tentar manter tela ligada (não-bloqueante)
+            requestWakeLock().catch(err => console.log('Wake Lock ignorado:', err));
             
             mediaRecorder.ondataavailable = (event) => {
                 audioChunks.push(event.data);
@@ -754,7 +757,6 @@
             document.getElementById('pause-recording').classList.remove('hidden');
             document.getElementById('stop-recording').classList.remove('hidden');
             document.getElementById('recording-indicator').classList.remove('hidden');
-            document.getElementById('screen-tip').classList.remove('hidden');
             document.getElementById('meeting-title').disabled = true;
             document.getElementById('tag-input').disabled = true;
             
@@ -1461,10 +1463,10 @@ Se não houver ações, use: [“Nenhuma ação específica registrada”]`;
         }
         
         // Reativar Wake Lock quando voltar ao app (se estava gravando)
-        document.addEventListener('visibilitychange', async () => {
+        document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible' && isRecording && !wakeLock) {
-                console.log('App voltou ao foco - reativando Wake Lock');
-                await requestWakeLock();
+                console.log('App voltou ao foco - tentando reativar Wake Lock');
+                requestWakeLock().catch(err => console.log('Não foi possível reativar Wake Lock:', err));
             }
         });
     }
