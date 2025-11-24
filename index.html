@@ -427,8 +427,8 @@
         
         <div id="loading-summary" class="card hidden" style="text-align: center;">
             <div class="loader"></div>
-            <p class="mt-4 text-gray">Gerando resumo e transcrição...</p>
-            <p class="text-sm text-gray">Isso pode levar alguns minutos</p>
+            <p class="mt-4 text-gray">Transcrevendo áudio com Whisper...</p>
+            <p class="text-sm text-gray">Depois vou gerar o resumo. Aguarde alguns minutos.</p>
         </div>
         
         <div id="summary-content" class="hidden">
@@ -663,31 +663,11 @@
                 mediaRecorder = new MediaRecorder(stream);
                 audioChunks = [];
                 
-                // Iniciar reconhecimento de voz
-                recognition = setupSpeechRecognition();
-                if (recognition) {
-                    try {
-                        recognition.start();
-                        console.log('Reconhecimento de voz iniciado');
-                    } catch (e) {
-                        console.log('Não foi possível iniciar reconhecimento de voz:', e);
-                    }
-                }
-                
                 mediaRecorder.ondataavailable = (event) => {
                     audioChunks.push(event.data);
                 };
                 
                 mediaRecorder.onstop = async () => {
-                    // Parar reconhecimento de voz
-                    if (recognition) {
-                        try {
-                            recognition.stop();
-                        } catch (e) {
-                            console.log('Erro ao parar reconhecimento:', e);
-                        }
-                    }
-                    
                     const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
                     await saveRecording(audioBlob);
                     stream.getTracks().forEach(track => track.stop());
@@ -738,7 +718,7 @@
                     audio: audioBase64,
                     tags: selectedTags,
                     summary: null,
-                    transcript: recognitionTranscript || null
+                    transcript: null
                 };
                 
                 await saveMeeting(meeting);
@@ -747,7 +727,6 @@
                 document.getElementById('meeting-title').disabled = false;
                 document.getElementById('tag-input').disabled = false;
                 selectedTags = [];
-                recognitionTranscript = '';
                 renderSelectedTags();
                 resetTimer();
                 
@@ -956,39 +935,6 @@
             }
         }
         
-        // ==================== TRANSCRIÇÃO COM WEB SPEECH API ====================
-        let recognition = null;
-        let recognitionTranscript = '';
-        
-        function setupSpeechRecognition() {
-            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-                return null;
-            }
-            
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            recognition = new SpeechRecognition();
-            recognition.lang = 'pt-BR';
-            recognition.continuous = true;
-            recognition.interimResults = false;
-            recognition.maxAlternatives = 1;
-            
-            recognitionTranscript = '';
-            
-            recognition.onresult = (event) => {
-                for (let i = event.resultIndex; i < event.results.length; i++) {
-                    if (event.results[i].isFinal) {
-                        recognitionTranscript += event.results[i][0].transcript + ' ';
-                    }
-                }
-            };
-            
-            recognition.onerror = (event) => {
-                console.error('Speech recognition error:', event.error);
-            };
-            
-            return recognition;
-        }
-        
         // ==================== IA ====================
         async function generateSummary() {
             const meeting = await getMeeting(currentMeetingId);
@@ -1006,13 +952,8 @@
             document.getElementById('loading-summary').classList.remove('hidden');
             
             try {
-                // Usar a transcrição que foi feita durante a gravação
-                let transcript = meeting.transcript || recognitionTranscript;
-                
-                if (!transcript || transcript.trim().length < 20) {
-                    // Se não tem transcrição, informar o usuário
-                    transcript = "Não foi possível capturar a transcrição automaticamente durante a gravação. Isso pode acontecer se o microfone não captou áudio claro ou se houve problemas de conexão. Por favor, ouça o áudio e adicione notas manualmente.";
-                }
+                // Transcrever o áudio usando Whisper da Groq
+                const transcript = await transcribeWithWhisper(meeting.audio, apiKey);
                 
                 // Gerar resumo com a transcrição
                 const summary = await generateSummaryFromTranscript(transcript);
@@ -1038,13 +979,61 @@
                 
                 let errorMsg = 'Erro ao gerar resumo.';
                 if (error.message.includes('401') || error.message.includes('403')) {
-                    errorMsg = 'Chave de API inválida. Vá em "Configurar API" no menu para corrigir.';
+                    errorMsg = 'Chave de API inválida. Clique no ícone ⚙️ para configurar novamente.';
                     localStorage.removeItem('groq_api_key');
+                } else if (error.message.includes('audio')) {
+                    errorMsg = 'Erro ao processar o áudio. Tente gravar novamente.';
                 }
                 
                 alert(errorMsg + '\n\nDetalhes: ' + error.message);
                 document.getElementById('loading-summary').classList.add('hidden');
                 document.getElementById('generate-summary-btn').classList.remove('hidden');
+            }
+        }
+        
+        async function transcribeWithWhisper(audioBase64, apiKey) {
+            try {
+                // Converter base64 para blob
+                const response = await fetch(audioBase64);
+                const blob = await response.blob();
+                
+                // Converter webm para formato compatível se necessário
+                // Whisper aceita diversos formatos incluindo webm
+                const audioFile = new File([blob], 'audio.webm', { type: 'audio/webm' });
+                
+                // Criar FormData
+                const formData = new FormData();
+                formData.append('file', audioFile);
+                formData.append('model', 'whisper-large-v3');
+                formData.append('language', 'pt');
+                formData.append('response_format', 'text');
+                
+                // Fazer requisição para Whisper API da Groq
+                const whisperResponse = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: formData
+                });
+                
+                if (!whisperResponse.ok) {
+                    const errorData = await whisperResponse.text();
+                    throw new Error(`Whisper API error ${whisperResponse.status}: ${errorData}`);
+                }
+                
+                // A resposta é texto direto quando response_format=text
+                const transcript = await whisperResponse.text();
+                
+                if (!transcript || transcript.trim().length < 10) {
+                    throw new Error('Transcrição vazia ou muito curta. Verifique se o áudio tem fala clara.');
+                }
+                
+                return transcript.trim();
+                
+            } catch (error) {
+                console.error('Erro na transcrição:', error);
+                throw new Error(`Falha ao transcrever áudio: ${error.message}`);
             }
         }
         
