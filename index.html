@@ -444,8 +444,8 @@
         
         <div id="loading-summary" class="card hidden" style="text-align: center;">
             <div class="loader"></div>
-            <p class="mt-4 text-gray">Transcrevendo áudio com Whisper...</p>
-            <p class="text-sm text-gray">Depois vou gerar o resumo. Aguarde alguns minutos.</p>
+            <p class="mt-4 text-gray" id="loading-message">Transcrevendo áudio com Whisper...</p>
+            <p class="text-sm text-gray" id="loading-detail">Depois vou gerar o resumo. Aguarde alguns minutos.</p>
         </div>
         
         <div id="summary-content" class="hidden">
@@ -676,8 +676,26 @@
         // ==================== GRAVAÇÃO ====================
         async function startRecording() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        sampleRate: 44100
+                    }
+                });
+                
+                // Configurar MediaRecorder com bitrate otimizado para voz (reduz tamanho do arquivo)
+                const options = { 
+                    mimeType: 'audio/webm;codecs=opus',
+                    audioBitsPerSecond: 64000 // 64kbps é ótimo para voz e reduz muito o tamanho
+                };
+                
+                // Fallback se o browser não suportar opus
+                if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                    options.mimeType = 'audio/webm';
+                }
+                
+                mediaRecorder = new MediaRecorder(stream, options);
                 audioChunks = [];
                 
                 mediaRecorder.ondataavailable = (event) => {
@@ -953,6 +971,130 @@
         }
         
         // ==================== IA ====================
+        
+        // Função para dividir áudio em chunks de 10 minutos
+        async function splitAudioIntoChunks(audioBase64, chunkDurationMinutes = 10) {
+            try {
+                console.log('Dividindo áudio em chunks de', chunkDurationMinutes, 'minutos...');
+                
+                // Converter base64 para blob
+                const response = await fetch(audioBase64);
+                const blob = await response.blob();
+                
+                // Criar contexto de áudio
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const arrayBuffer = await blob.arrayBuffer();
+                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                
+                const duration = audioBuffer.duration; // em segundos
+                const chunkDuration = chunkDurationMinutes * 60; // converter para segundos
+                
+                console.log('Duração total do áudio:', duration, 'segundos');
+                console.log('Duração de cada chunk:', chunkDuration, 'segundos');
+                
+                // Se o áudio é menor que um chunk, retornar o áudio inteiro
+                if (duration <= chunkDuration) {
+                    console.log('Áudio menor que', chunkDurationMinutes, 'minutos, não precisa dividir');
+                    return [blob];
+                }
+                
+                const numberOfChunks = Math.ceil(duration / chunkDuration);
+                console.log('Número de chunks:', numberOfChunks);
+                
+                const chunks = [];
+                
+                for (let i = 0; i < numberOfChunks; i++) {
+                    const startTime = i * chunkDuration;
+                    const endTime = Math.min((i + 1) * chunkDuration, duration);
+                    
+                    console.log(`Processando chunk ${i + 1}/${numberOfChunks}: ${startTime}s - ${endTime}s`);
+                    
+                    // Criar buffer para o chunk
+                    const chunkLength = (endTime - startTime) * audioBuffer.sampleRate;
+                    const chunkBuffer = audioContext.createBuffer(
+                        audioBuffer.numberOfChannels,
+                        chunkLength,
+                        audioBuffer.sampleRate
+                    );
+                    
+                    // Copiar dados do áudio original para o chunk
+                    for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+                        const sourceData = audioBuffer.getChannelData(channel);
+                        const chunkData = chunkBuffer.getChannelData(channel);
+                        const startSample = Math.floor(startTime * audioBuffer.sampleRate);
+                        
+                        for (let j = 0; j < chunkLength; j++) {
+                            chunkData[j] = sourceData[startSample + j];
+                        }
+                    }
+                    
+                    // Converter buffer para blob
+                    const chunkBlob = await audioBufferToBlob(chunkBuffer);
+                    chunks.push(chunkBlob);
+                }
+                
+                await audioContext.close();
+                
+                console.log('Áudio dividido em', chunks.length, 'chunks');
+                return chunks;
+                
+            } catch (error) {
+                console.error('Erro ao dividir áudio:', error);
+                // Em caso de erro, retornar o áudio original
+                const response = await fetch(audioBase64);
+                const blob = await response.blob();
+                return [blob];
+            }
+        }
+        
+        // Função auxiliar para converter AudioBuffer em Blob
+        async function audioBufferToBlob(audioBuffer) {
+            const numberOfChannels = audioBuffer.numberOfChannels;
+            const length = audioBuffer.length * numberOfChannels * 2;
+            const buffer = new ArrayBuffer(44 + length);
+            const view = new DataView(buffer);
+            const sampleRate = audioBuffer.sampleRate;
+            
+            // Escrever cabeçalho WAV
+            const writeString = (offset, string) => {
+                for (let i = 0; i < string.length; i++) {
+                    view.setUint8(offset + i, string.charCodeAt(i));
+                }
+            };
+            
+            writeString(0, 'RIFF');
+            view.setUint32(4, 36 + length, true);
+            writeString(8, 'WAVE');
+            writeString(12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, numberOfChannels, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * numberOfChannels * 2, true);
+            view.setUint16(32, numberOfChannels * 2, true);
+            view.setUint16(34, 16, true);
+            writeString(36, 'data');
+            view.setUint32(40, length, true);
+            
+            // Escrever dados de áudio
+            const offset = 44;
+            const channelData = [];
+            for (let i = 0; i < numberOfChannels; i++) {
+                channelData.push(audioBuffer.getChannelData(i));
+            }
+            
+            let index = 0;
+            for (let i = 0; i < audioBuffer.length; i++) {
+                for (let channel = 0; channel < numberOfChannels; channel++) {
+                    const sample = Math.max(-1, Math.min(1, channelData[channel][i]));
+                    view.setInt16(offset + index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+                    index++;
+                }
+            }
+            
+            return new Blob([buffer], { type: 'audio/wav' });
+        }
+        
         async function generateSummary() {
             const meeting = await getMeeting(currentMeetingId);
             
@@ -973,18 +1115,48 @@
                 console.log('ID da reunião:', currentMeetingId);
                 console.log('Áudio presente:', meeting.audio ? 'Sim' : 'Não');
                 
-                // Transcrever o áudio usando Whisper da Groq
-                console.log('Passo 1: Transcrevendo áudio...');
-                const transcript = await transcribeWithWhisper(meeting.audio, apiKey);
-                console.log('Transcrição concluída! Tamanho:', transcript.length, 'caracteres');
-                console.log('Primeiros 200 caracteres:', transcript.substring(0, 200));
+                // Dividir áudio em chunks de 10 minutos
+                document.getElementById('loading-message').textContent = 'Preparando áudio...';
+                document.getElementById('loading-detail').textContent = 'Analisando duração e dividindo se necessário.';
                 
-                // Gerar resumo com a transcrição
-                console.log('Passo 2: Gerando resumo...');
-                const summary = await generateSummaryFromTranscript(transcript);
+                console.log('Passo 1: Dividindo áudio em chunks...');
+                const audioChunks = await splitAudioIntoChunks(meeting.audio, 10);
+                console.log('Áudio dividido em', audioChunks.length, 'chunks');
+                
+                // Transcrever cada chunk
+                console.log('Passo 2: Transcrevendo chunks...');
+                let fullTranscript = '';
+                
+                for (let i = 0; i < audioChunks.length; i++) {
+                    document.getElementById('loading-message').textContent = 
+                        `Transcrevendo parte ${i + 1} de ${audioChunks.length}...`;
+                    document.getElementById('loading-detail').textContent = 
+                        'Isso pode levar alguns minutos. Aguarde.';
+                    
+                    console.log(`Transcrevendo chunk ${i + 1}/${audioChunks.length}...`);
+                    
+                    // Converter blob para base64
+                    const chunkBase64 = await blobToBase64(audioChunks[i]);
+                    const chunkTranscript = await transcribeWithWhisper(chunkBase64, apiKey);
+                    
+                    // Adicionar ao transcript completo
+                    if (fullTranscript) fullTranscript += '\n\n';
+                    fullTranscript += chunkTranscript;
+                    
+                    console.log(`Chunk ${i + 1} transcrito! Tamanho:`, chunkTranscript.length, 'caracteres');
+                }
+                
+                console.log('Transcrição completa! Tamanho total:', fullTranscript.length, 'caracteres');
+                
+                // Gerar resumo com a transcrição completa
+                document.getElementById('loading-message').textContent = 'Gerando resumo com IA...';
+                document.getElementById('loading-detail').textContent = 'Analisando a transcrição e criando resumo estruturado.';
+                
+                console.log('Passo 3: Gerando resumo...');
+                const summary = await generateSummaryFromTranscript(fullTranscript);
                 console.log('Resumo gerado:', summary);
                 
-                meeting.transcript = transcript;
+                meeting.transcript = fullTranscript;
                 meeting.summary = summary;
                 await updateMeeting(meeting);
                 console.log('Reunião atualizada no banco!');
@@ -999,7 +1171,7 @@
                     .map(decision => `<li>• ${decision}</li>`).join('');
                 document.getElementById('summary-actions').innerHTML = summary.actions
                     .map(action => `<li>• ${action}</li>`).join('');
-                document.getElementById('transcript-text').textContent = transcript;
+                document.getElementById('transcript-text').textContent = fullTranscript;
                 
                 console.log('=== RESUMO CONCLUÍDO COM SUCESSO ===');
                 
@@ -1023,22 +1195,33 @@
             }
         }
         
+        // Função auxiliar para converter Blob em Base64
+        function blobToBase64(blob) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+        }
+        
         async function transcribeWithWhisper(audioBase64, apiKey) {
             try {
                 // Converter base64 para blob
                 const response = await fetch(audioBase64);
                 const blob = await response.blob();
                 
-                // Converter webm para formato compatível se necessário
-                // Whisper aceita diversos formatos incluindo webm
-                const audioFile = new File([blob], 'audio.webm', { type: 'audio/webm' });
+                // Criar arquivo de áudio
+                const audioFile = new File([blob], 'audio.wav', { type: blob.type });
+                
+                console.log('Arquivo de áudio:', audioFile.name, 'Tamanho:', (audioFile.size / 1024 / 1024).toFixed(2), 'MB');
                 
                 // Criar FormData
                 const formData = new FormData();
                 formData.append('file', audioFile);
                 formData.append('model', 'whisper-large-v3');
                 formData.append('language', 'pt');
-                formData.append('response_format', 'verbose_json'); // Mudado para pegar timestamps e possível diarização
+                formData.append('response_format', 'verbose_json');
                 formData.append('timestamp_granularities[]', 'segment');
                 
                 // Fazer requisição para Whisper API da Groq
@@ -1052,30 +1235,20 @@
                 
                 if (!whisperResponse.ok) {
                     const errorData = await whisperResponse.text();
+                    console.error('Erro Whisper:', errorData);
                     throw new Error(`Whisper API error ${whisperResponse.status}: ${errorData}`);
                 }
                 
                 const data = await whisperResponse.json();
                 
-                // Montar transcrição com timestamps e tentativa de identificar mudanças de speaker
+                // Montar transcrição com timestamps
                 let transcript = '';
-                let currentSpeaker = 1;
-                let lastPause = 0;
                 
                 if (data.segments && data.segments.length > 0) {
-                    data.segments.forEach((segment, index) => {
-                        // Se houve uma pausa longa (>2s), pode ser outro speaker
-                        if (index > 0 && segment.start - lastPause > 2.0) {
-                            currentSpeaker++;
-                            transcript += '\n\n';
-                        }
-                        
-                        // Adicionar timestamp e texto
+                    data.segments.forEach((segment) => {
                         const minutes = Math.floor(segment.start / 60);
                         const seconds = Math.floor(segment.start % 60);
                         transcript += `[${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}] ${segment.text.trim()}\n`;
-                        
-                        lastPause = segment.end;
                     });
                 } else {
                     // Fallback para texto simples
