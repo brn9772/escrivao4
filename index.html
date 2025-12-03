@@ -1461,8 +1461,8 @@
             }
             document.getElementById('summary-points').innerHTML = pointsHTML || '<p style="opacity: 0.7;">Nenhum ponto registrado</p>';
             
-            // Transcrição
-            document.getElementById('transcript-text').textContent = summary.full_transcript || transcript || 'Transcrição não disponível';
+            // Transcrição - SEMPRE usar a passada como parâmetro (completa), não a do summary
+            document.getElementById('transcript-text').textContent = transcript || summary.full_transcript || 'Transcrição não disponível';
         }
         
         async function generateSummary() {
@@ -1649,10 +1649,20 @@
                 throw new Error('API Key não configurada');
             }
             
-            // Transcrição já vem limpa (sem timestamps)
-            // NÃO truncar - precisa da transcrição completa para o novo formato
+            // Truncar transcrição para caber na requisição da API
+            // Limite: ~12000 caracteres para não exceder tamanho máximo de request
             let transcriptToSend = transcript;
-            console.log('Transcrição completa enviada:', transcript.length, 'caracteres');
+            let truncatedNote = '';
+            
+            if (transcript.length > 12000) {
+                transcriptToSend = transcript.substring(0, 12000);
+                const percentageCovered = Math.round((12000 / transcript.length) * 100);
+                truncatedNote = `\n\n[NOTA: Esta transcrição foi truncada para ${percentageCovered}% do total devido a limitações da API. O resumo é baseado nos primeiros ~35-40 minutos da reunião. A transcrição COMPLETA está preservada no documento.]`;
+                console.log('Transcrição truncada para:', transcriptToSend.length, 'caracteres');
+                console.log('Percentual:', percentageCovered, '%');
+            } else {
+                console.log('Transcrição completa enviada:', transcript.length, 'caracteres');
+            }
             
             const durationMinutes = Math.round(duration / 60000);
             const dateFormatted = date ? new Date(date).toLocaleString('pt-BR', {
@@ -1673,8 +1683,8 @@ DADOS DA REUNIÃO:
 - Duração: ${durationMinutes} minutos
 - Participantes: ${participants || 'Não informados'}
 
-TRANSCRIÇÃO COMPLETA:
-${transcriptToSend}
+TRANSCRIÇÃO:
+${transcriptToSend}${truncatedNote}
 
 Retorne um JSON com esta estrutura EXATA:
 {
@@ -1757,12 +1767,11 @@ INSTRUÇÕES ABSOLUTAMENTE CRÍTICAS:
    - "Mari mencionou que viu Caio esquecer comida no ralo e escolheu apenas higienizar sem repreendê-lo"
 
 3. TRANSCRIÇÃO COMPLETA (CRÍTICO):
-   - TRANSCREVER PALAVRA POR PALAVRA tudo que foi dito
-   - Esta é a parte MAIS IMPORTANTE para registro
-   - Para ${durationMinutes} minutos, espera-se VÁRIAS PÁGINAS
-   - NÃO resuma, NÃO parafraseie, NÃO omita
-   - Formato: "Nome: [fala completa]"
-   - Mantenha naturalidade (ok ter "então", "né", "tipo")
+   - Retorne a transcrição EXATAMENTE como fornecida acima, reorganizada em parágrafos
+   - Organize por falante: "Nome: [fala]"
+   - Mantenha naturalidade da fala (ok ter "então", "né", "tipo")
+   - NÃO invente, NÃO adicione informações
+   - Se a transcrição foi truncada (veja nota acima), indique isso no final
 
 4. DECISÕES E AÇÕES:
    - Se não houve decisões formais: [{"decision": "Nenhuma decisão formal registrada - esta foi uma conversa de escuta e acolhimento", "context": "", "impact": ""}]
@@ -1872,7 +1881,9 @@ Retorne APENAS o JSON, sem markdown ou texto adicional.`;
                     summary.executive_summary = "Resumo não disponível";
                 }
                 
-                if (!summary.full_transcript) summary.full_transcript = transcript; // usa original se IA não retornou
+                // SEMPRE usar transcrição completa original, não a retornada pela IA
+                // (que pode estar truncada ou modificada)
+                summary.full_transcript = transcript;
                 if (!Array.isArray(summary.decisions) || summary.decisions.length === 0) {
                     summary.decisions = [{decision: "Nenhuma decisão formal registrada nesta reunião", context: "", impact: ""}];
                 }
