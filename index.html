@@ -1745,9 +1745,7 @@ Retorne um JSON com esta estrutura EXATA:
     "Aspirações e Objetivos": [
       "[O que a pessoa deseja alcançar]"
     ]
-  },
-  
-  "full_transcript": "[OBRIGATÓRIO: Transcrição COMPLETA, PALAVRA POR PALAVRA de TUDO que foi dito. Organize em parágrafos por fala. Indique o falante. Mantenha vícios de linguagem importantes. Para ${durationMinutes} minutos, esta seção deve ter VÁRIAS páginas de texto. NÃO RESUMA. NÃO PARAFRASEIE. TRANSCREVA LITERALMENTE tudo.]"
+  }
 }
 
 INSTRUÇÕES ABSOLUTAMENTE CRÍTICAS:
@@ -1766,22 +1764,17 @@ INSTRUÇÕES ABSOLUTAMENTE CRÍTICAS:
    - Não seja vago - seja concreto
    - "Mari mencionou que viu Caio esquecer comida no ralo e escolheu apenas higienizar sem repreendê-lo"
 
-3. TRANSCRIÇÃO COMPLETA (CRÍTICO):
-   - Retorne a transcrição EXATAMENTE como fornecida acima, reorganizada em parágrafos
-   - Organize por falante: "Nome: [fala]"
-   - Mantenha naturalidade da fala (ok ter "então", "né", "tipo")
-   - NÃO invente, NÃO adicione informações
-   - Se a transcrição foi truncada (veja nota acima), indique isso no final
-
-4. DECISÕES E AÇÕES:
+3. DECISÕES E AÇÕES:
    - Se não houve decisões formais: [{"decision": "Nenhuma decisão formal registrada - esta foi uma conversa de escuta e acolhimento", "context": "", "impact": ""}]
    - Se não houve ações explícitas: [{"action": "Nenhuma ação explícita definida - recomenda-se acompanhamento posterior", "responsible": ""}]
    - Se houve ações IMPLÍCITAS, liste-as
 
-5. QUALIDADE ESPERADA:
-   - Leitor que não participou deve entender COMPLETAMENTE apenas lendo o resumo
-   - Transcrição deve permitir "reviver" a conversa inteira
+4. QUALIDADE ESPERADA:
+   - Leitor que não participou deve entender COMPLETAMENTE apenas lendo o resumo executivo
    - Use detalhes, nomes, exemplos, citações - seja RICO e ESPECÍFICO
+   - Mantenha foco na QUALIDADE do resumo, não no tamanho da resposta
+
+IMPORTANTE: NÃO retorne a transcrição no JSON. Apenas resumo, decisões, ações e pontos principais.
 
 Retorne APENAS o JSON, sem markdown ou texto adicional.`;
 
@@ -1848,17 +1841,38 @@ Retorne APENAS o JSON, sem markdown ou texto adicional.`;
                 
                 // Limpar markdown
                 responseText = responseText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-                console.log('Texto limpo:', responseText);
+                
+                // Limpar caracteres de controle inválidos em JSON
+                // (mantém apenas \n, \t, \r que são válidos quando escapados)
+                responseText = responseText.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F]/g, '');
+                
+                // Verificar se JSON está truncado (termina sem fechar chaves)
+                if (!responseText.endsWith('}')) {
+                    console.warn('⚠️ Resposta parece truncada, tentando completar...');
+                    // Contar chaves abertas vs fechadas
+                    const openBraces = (responseText.match(/\{/g) || []).length;
+                    const closeBraces = (responseText.match(/\}/g) || []).length;
+                    const missing = openBraces - closeBraces;
+                    
+                    if (missing > 0) {
+                        console.warn(`Faltam ${missing} chaves de fechamento`);
+                        // Adicionar chaves faltantes
+                        responseText += '\n' + '}'.repeat(missing);
+                    }
+                }
+                
+                console.log('Texto limpo:', responseText.substring(0, 500) + '...');
                 
                 // Parse do JSON
                 let summary;
                 try {
                     summary = JSON.parse(responseText);
-                    console.log('JSON parseado com sucesso!', summary);
+                    console.log('✅ JSON parseado com sucesso!', summary);
                 } catch (e) {
-                    console.error('ERRO ao parsear JSON:', e);
-                    console.error('Texto que tentou parsear:', responseText);
-                    throw new Error('IA não retornou JSON válido');
+                    console.error('❌ ERRO ao parsear JSON:', e);
+                    console.error('Primeiros 1000 chars:', responseText.substring(0, 1000));
+                    console.error('Últimos 500 chars:', responseText.substring(responseText.length - 500));
+                    throw new Error('IA não retornou JSON válido: ' + e.message);
                 }
                 
                 // Validar campos do novo formato
