@@ -356,14 +356,51 @@
             Voltar
         </button>
         
-        <div class="card">
+        <!-- Escolha entre gravar ou upload -->
+        <div id="recording-mode-selector" class="card">
+            <h2 class="mb-3">Como deseja adicionar o áudio?</h2>
+            <button class="btn btn-danger mb-2" onclick="selectRecordingMode()">
+                <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display: inline-block; vertical-align: middle; margin-right: 0.5rem;">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+                </svg>
+                Gravar Agora
+            </button>
+            <button class="btn btn-primary" onclick="selectUploadMode()">
+                <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display: inline-block; vertical-align: middle; margin-right: 0.5rem;">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                </svg>
+                Fazer Upload de Áudio
+            </button>
+        </div>
+        
+        <!-- Formulário de gravação/upload -->
+        <div id="recording-form" class="card hidden">
             <input type="text" id="meeting-title" class="input" placeholder="Título da reunião">
             
             <label class="text-sm text-gray">Tags (opcional)</label>
             <div id="selected-tags" class="mb-2"></div>
             <input type="text" id="tag-input" class="input" placeholder="Digite uma tag e pressione Enter">
             
-            <div style="text-align: center;">
+            <!-- Input para upload de arquivo (oculto) -->
+            <input type="file" id="audio-upload" accept="audio/*" style="display: none;" onchange="handleAudioUpload(event)">
+            
+            <div id="upload-section" class="hidden">
+                <button class="btn btn-primary mb-3" onclick="document.getElementById('audio-upload').click()">
+                    <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display: inline-block; vertical-align: middle; margin-right: 0.5rem;">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                    </svg>
+                    Selecionar Arquivo de Áudio
+                </button>
+                <div id="upload-info" class="hidden" style="background: #f0fdf4; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem;">
+                    <p class="text-sm" style="color: #166534; font-weight: 600;" id="upload-filename"></p>
+                    <p class="text-sm" style="color: #166534;" id="upload-filesize"></p>
+                </div>
+                <button id="save-upload" class="btn btn-primary hidden" onclick="saveUploadedAudio()">
+                    Salvar Reunião
+                </button>
+            </div>
+            
+            <div id="recording-section" class="hidden" style="text-align: center;">
                 <div id="recording-indicator" class="hidden mb-3">
                     <span class="recording-indicator">
                         <span class="recording-dot recording-pulse"></span>
@@ -372,14 +409,14 @@
                 </div>
                 <div id="timer" class="timer">00:00:00</div>
                 <p id="recording-date" class="text-sm text-gray"></p>
+                
+                <button id="start-recording" class="btn btn-danger mt-4" onclick="startRecording()">
+                    Iniciar Gravação
+                </button>
+                <button id="stop-recording" class="btn btn-dark mt-4 hidden" onclick="stopRecording()">
+                    Parar Gravação
+                </button>
             </div>
-            
-            <button id="start-recording" class="btn btn-danger mt-4" onclick="startRecording()">
-                Iniciar Gravação
-            </button>
-            <button id="stop-recording" class="btn btn-dark mt-4 hidden" onclick="stopRecording()">
-                Parar Gravação
-            </button>
         </div>
     </div>
     
@@ -504,6 +541,7 @@
         let currentMeetingId = null;
         let selectedTags = [];
         let filterTag = null;
+        let uploadedAudioBlob = null; // Para armazenar áudio do upload
         
         // ==================== INDEXEDDB ====================
         function initDB() {
@@ -631,7 +669,110 @@
         }
         
         function showRecordingScreen() {
+            // Resetar estado
+            uploadedAudioBlob = null;
+            document.getElementById('meeting-title').value = '';
+            selectedTags = [];
+            renderSelectedTags();
+            resetTimer();
+            
+            // Mostrar seletor de modo
+            document.getElementById('recording-mode-selector').classList.remove('hidden');
+            document.getElementById('recording-form').classList.add('hidden');
+            
             showScreen('recording');
+        }
+        
+        function selectRecordingMode() {
+            // Ocultar seletor e mostrar formulário de gravação
+            document.getElementById('recording-mode-selector').classList.add('hidden');
+            document.getElementById('recording-form').classList.remove('hidden');
+            document.getElementById('recording-section').classList.remove('hidden');
+            document.getElementById('upload-section').classList.add('hidden');
+        }
+        
+        function selectUploadMode() {
+            // Ocultar seletor e mostrar formulário de upload
+            document.getElementById('recording-mode-selector').classList.add('hidden');
+            document.getElementById('recording-form').classList.remove('hidden');
+            document.getElementById('upload-section').classList.remove('hidden');
+            document.getElementById('recording-section').classList.add('hidden');
+        }
+        
+        async function handleAudioUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            // Verificar se é um arquivo de áudio
+            if (!file.type.startsWith('audio/')) {
+                alert('Por favor, selecione um arquivo de áudio válido.');
+                return;
+            }
+            
+            console.log('Arquivo selecionado:', file.name, 'Tamanho:', (file.size / 1024 / 1024).toFixed(2), 'MB');
+            
+            // Armazenar o blob do áudio
+            uploadedAudioBlob = file;
+            
+            // Mostrar informações do arquivo
+            document.getElementById('upload-filename').textContent = `📄 ${file.name}`;
+            document.getElementById('upload-filesize').textContent = `💾 Tamanho: ${(file.size / 1024 / 1024).toFixed(2)} MB`;
+            document.getElementById('upload-info').classList.remove('hidden');
+            document.getElementById('save-upload').classList.remove('hidden');
+        }
+        
+        async function saveUploadedAudio() {
+            if (!uploadedAudioBlob) {
+                alert('Nenhum áudio selecionado!');
+                return;
+            }
+            
+            const title = document.getElementById('meeting-title').value || 'Reunião sem título';
+            
+            // Converter blob para base64
+            const reader = new FileReader();
+            reader.readAsDataURL(uploadedAudioBlob);
+            reader.onloadend = async () => {
+                const audioBase64 = reader.result;
+                
+                // Obter duração do áudio (se possível)
+                let duration = 0;
+                try {
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const arrayBuffer = await uploadedAudioBlob.arrayBuffer();
+                    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                    duration = audioBuffer.duration * 1000; // converter para ms
+                    await audioContext.close();
+                } catch (error) {
+                    console.log('Não foi possível detectar duração do áudio:', error);
+                    // Usar tamanho do arquivo como estimativa aproximada (assumindo ~1MB por minuto)
+                    duration = (uploadedAudioBlob.size / 1024 / 1024) * 60 * 1000;
+                }
+                
+                const meeting = {
+                    title: title,
+                    date: new Date().toISOString(),
+                    duration: duration,
+                    audio: audioBase64,
+                    tags: selectedTags,
+                    summary: null,
+                    transcript: null
+                };
+                
+                await saveMeeting(meeting);
+                
+                // Resetar formulário
+                document.getElementById('meeting-title').value = '';
+                document.getElementById('audio-upload').value = '';
+                document.getElementById('upload-info').classList.add('hidden');
+                document.getElementById('save-upload').classList.add('hidden');
+                uploadedAudioBlob = null;
+                selectedTags = [];
+                renderSelectedTags();
+                
+                showScreen('home');
+                alert('Reunião salva com sucesso!');
+            };
         }
         
         function backToHome() {
@@ -641,11 +782,25 @@
                         mediaRecorder.stop();
                     }
                     isRecording = false;
+                    resetRecordingScreen();
                     showScreen('home');
                 }
             } else {
+                resetRecordingScreen();
                 showScreen('home');
             }
+        }
+        
+        function resetRecordingScreen() {
+            // Resetar todos os elementos da tela de gravação
+            document.getElementById('recording-mode-selector').classList.remove('hidden');
+            document.getElementById('recording-form').classList.add('hidden');
+            document.getElementById('recording-section').classList.add('hidden');
+            document.getElementById('upload-section').classList.add('hidden');
+            document.getElementById('upload-info').classList.add('hidden');
+            document.getElementById('save-upload').classList.add('hidden');
+            document.getElementById('audio-upload').value = '';
+            uploadedAudioBlob = null;
         }
         
         function backToList() {
@@ -972,68 +1127,39 @@
         
         // ==================== IA ====================
         
-        // Função para dividir áudio em chunks de 10 minutos
-        async function splitAudioIntoChunks(audioBase64, chunkDurationMinutes = 10) {
+        // Função para dividir áudio em chunks baseado no TAMANHO (mais simples e confiável)
+        async function splitAudioBySize(audioBase64, maxSizeMB = 15) {
             try {
-                console.log('Dividindo áudio em chunks de', chunkDurationMinutes, 'minutos...');
+                console.log('Dividindo áudio por tamanho (max', maxSizeMB, 'MB por chunk)...');
                 
                 // Converter base64 para blob
                 const response = await fetch(audioBase64);
                 const blob = await response.blob();
                 
-                // Criar contexto de áudio
-                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                const arrayBuffer = await blob.arrayBuffer();
-                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                const fileSizeMB = blob.size / 1024 / 1024;
+                console.log('Tamanho do arquivo:', fileSizeMB.toFixed(2), 'MB');
                 
-                const duration = audioBuffer.duration; // em segundos
-                const chunkDuration = chunkDurationMinutes * 60; // converter para segundos
-                
-                console.log('Duração total do áudio:', duration, 'segundos');
-                console.log('Duração de cada chunk:', chunkDuration, 'segundos');
-                
-                // Se o áudio é menor que um chunk, retornar o áudio inteiro
-                if (duration <= chunkDuration) {
-                    console.log('Áudio menor que', chunkDurationMinutes, 'minutos, não precisa dividir');
+                // Se o arquivo é menor que o limite, retornar inteiro
+                if (fileSizeMB <= maxSizeMB) {
+                    console.log('Arquivo menor que', maxSizeMB, 'MB, não precisa dividir');
                     return [blob];
                 }
                 
-                const numberOfChunks = Math.ceil(duration / chunkDuration);
-                console.log('Número de chunks:', numberOfChunks);
+                // Calcular número de chunks necessários
+                const numberOfChunks = Math.ceil(fileSizeMB / maxSizeMB);
+                const chunkSize = Math.ceil(blob.size / numberOfChunks);
+                
+                console.log('Dividindo em', numberOfChunks, 'chunks de ~', (chunkSize / 1024 / 1024).toFixed(2), 'MB cada');
                 
                 const chunks = [];
+                let offset = 0;
                 
-                for (let i = 0; i < numberOfChunks; i++) {
-                    const startTime = i * chunkDuration;
-                    const endTime = Math.min((i + 1) * chunkDuration, duration);
-                    
-                    console.log(`Processando chunk ${i + 1}/${numberOfChunks}: ${startTime}s - ${endTime}s`);
-                    
-                    // Criar buffer para o chunk
-                    const chunkLength = (endTime - startTime) * audioBuffer.sampleRate;
-                    const chunkBuffer = audioContext.createBuffer(
-                        audioBuffer.numberOfChannels,
-                        chunkLength,
-                        audioBuffer.sampleRate
-                    );
-                    
-                    // Copiar dados do áudio original para o chunk
-                    for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
-                        const sourceData = audioBuffer.getChannelData(channel);
-                        const chunkData = chunkBuffer.getChannelData(channel);
-                        const startSample = Math.floor(startTime * audioBuffer.sampleRate);
-                        
-                        for (let j = 0; j < chunkLength; j++) {
-                            chunkData[j] = sourceData[startSample + j];
-                        }
-                    }
-                    
-                    // Converter buffer para blob
-                    const chunkBlob = await audioBufferToBlob(chunkBuffer);
-                    chunks.push(chunkBlob);
+                while (offset < blob.size) {
+                    const end = Math.min(offset + chunkSize, blob.size);
+                    const chunk = blob.slice(offset, end, blob.type);
+                    chunks.push(chunk);
+                    offset = end;
                 }
-                
-                await audioContext.close();
                 
                 console.log('Áudio dividido em', chunks.length, 'chunks');
                 return chunks;
@@ -1045,54 +1171,6 @@
                 const blob = await response.blob();
                 return [blob];
             }
-        }
-        
-        // Função auxiliar para converter AudioBuffer em Blob
-        async function audioBufferToBlob(audioBuffer) {
-            const numberOfChannels = audioBuffer.numberOfChannels;
-            const length = audioBuffer.length * numberOfChannels * 2;
-            const buffer = new ArrayBuffer(44 + length);
-            const view = new DataView(buffer);
-            const sampleRate = audioBuffer.sampleRate;
-            
-            // Escrever cabeçalho WAV
-            const writeString = (offset, string) => {
-                for (let i = 0; i < string.length; i++) {
-                    view.setUint8(offset + i, string.charCodeAt(i));
-                }
-            };
-            
-            writeString(0, 'RIFF');
-            view.setUint32(4, 36 + length, true);
-            writeString(8, 'WAVE');
-            writeString(12, 'fmt ');
-            view.setUint32(16, 16, true);
-            view.setUint16(20, 1, true);
-            view.setUint16(22, numberOfChannels, true);
-            view.setUint32(24, sampleRate, true);
-            view.setUint32(28, sampleRate * numberOfChannels * 2, true);
-            view.setUint16(32, numberOfChannels * 2, true);
-            view.setUint16(34, 16, true);
-            writeString(36, 'data');
-            view.setUint32(40, length, true);
-            
-            // Escrever dados de áudio
-            const offset = 44;
-            const channelData = [];
-            for (let i = 0; i < numberOfChannels; i++) {
-                channelData.push(audioBuffer.getChannelData(i));
-            }
-            
-            let index = 0;
-            for (let i = 0; i < audioBuffer.length; i++) {
-                for (let channel = 0; channel < numberOfChannels; channel++) {
-                    const sample = Math.max(-1, Math.min(1, channelData[channel][i]));
-                    view.setInt16(offset + index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
-                    index++;
-                }
-            }
-            
-            return new Blob([buffer], { type: 'audio/wav' });
         }
         
         async function generateSummary() {
@@ -1115,35 +1193,56 @@
                 console.log('ID da reunião:', currentMeetingId);
                 console.log('Áudio presente:', meeting.audio ? 'Sim' : 'Não');
                 
-                // Dividir áudio em chunks de 10 minutos
+                // Dividir áudio em chunks de 15MB (se necessário)
                 document.getElementById('loading-message').textContent = 'Preparando áudio...';
-                document.getElementById('loading-detail').textContent = 'Analisando duração e dividindo se necessário.';
+                document.getElementById('loading-detail').textContent = 'Analisando tamanho e dividindo se necessário.';
                 
                 console.log('Passo 1: Dividindo áudio em chunks...');
-                const audioChunks = await splitAudioIntoChunks(meeting.audio, 10);
+                const audioChunks = await splitAudioBySize(meeting.audio, 15);
                 console.log('Áudio dividido em', audioChunks.length, 'chunks');
                 
                 // Transcrever cada chunk
                 console.log('Passo 2: Transcrevendo chunks...');
                 let fullTranscript = '';
+                let successfulChunks = 0;
+                let failedChunks = 0;
                 
                 for (let i = 0; i < audioChunks.length; i++) {
-                    document.getElementById('loading-message').textContent = 
-                        `Transcrevendo parte ${i + 1} de ${audioChunks.length}...`;
-                    document.getElementById('loading-detail').textContent = 
-                        'Isso pode levar alguns minutos. Aguarde.';
-                    
-                    console.log(`Transcrevendo chunk ${i + 1}/${audioChunks.length}...`);
-                    
-                    // Converter blob para base64
-                    const chunkBase64 = await blobToBase64(audioChunks[i]);
-                    const chunkTranscript = await transcribeWithWhisper(chunkBase64, apiKey);
-                    
-                    // Adicionar ao transcript completo
-                    if (fullTranscript) fullTranscript += '\n\n';
-                    fullTranscript += chunkTranscript;
-                    
-                    console.log(`Chunk ${i + 1} transcrito! Tamanho:`, chunkTranscript.length, 'caracteres');
+                    try {
+                        document.getElementById('loading-message').textContent = 
+                            `Transcrevendo parte ${i + 1} de ${audioChunks.length}...`;
+                        document.getElementById('loading-detail').textContent = 
+                            'Isso pode levar alguns minutos. Aguarde.';
+                        
+                        console.log(`Transcrevendo chunk ${i + 1}/${audioChunks.length}...`);
+                        
+                        // Converter blob para base64
+                        const chunkBase64 = await blobToBase64(audioChunks[i]);
+                        const chunkTranscript = await transcribeWithWhisper(chunkBase64, apiKey);
+                        
+                        // Adicionar ao transcript completo
+                        if (fullTranscript) fullTranscript += '\n\n';
+                        fullTranscript += chunkTranscript;
+                        successfulChunks++;
+                        
+                        console.log(`Chunk ${i + 1} transcrito! Tamanho:`, chunkTranscript.length, 'caracteres');
+                    } catch (error) {
+                        console.error(`Erro ao transcrever chunk ${i + 1}:`, error);
+                        failedChunks++;
+                        
+                        // Se for o primeiro chunk e falhou, propagar o erro
+                        if (i === 0) {
+                            throw error;
+                        }
+                        
+                        // Senão, continuar com os outros chunks
+                        if (fullTranscript) fullTranscript += '\n\n';
+                        fullTranscript += `[Parte ${i + 1} não pôde ser transcrita]`;
+                    }
+                }
+                
+                if (failedChunks > 0) {
+                    console.warn(`${failedChunks} chunks falharam, mas ${successfulChunks} foram processados com sucesso`);
                 }
                 
                 console.log('Transcrição completa! Tamanho total:', fullTranscript.length, 'caracteres');
@@ -1236,6 +1335,12 @@
                 if (!whisperResponse.ok) {
                     const errorData = await whisperResponse.text();
                     console.error('Erro Whisper:', errorData);
+                    
+                    // Se for erro 413, dar mensagem específica
+                    if (whisperResponse.status === 413) {
+                        throw new Error(`Chunk de áudio muito grande (${(audioFile.size / 1024 / 1024).toFixed(2)}MB). Tente gravar reuniões mais curtas ou aguarde uma atualização do app.`);
+                    }
+                    
                     throw new Error(`Whisper API error ${whisperResponse.status}: ${errorData}`);
                 }
                 
