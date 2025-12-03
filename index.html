@@ -493,12 +493,22 @@
         <div id="summary-content" class="hidden">
             <div class="card">
                 <div class="section-header">
+                    <svg class="section-icon" style="color: #64748b;" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
+                    </svg>
+                    <h3>Informações da Reunião</h3>
+                </div>
+                <div id="meeting-info" class="text-sm" style="line-height: 1.8;"></div>
+            </div>
+            
+            <div class="card">
+                <div class="section-header">
                     <svg class="section-icon" style="color: #8b5cf6;" fill="currentColor" viewBox="0 0 20 20">
                         <path d="M9 4.804A7.968 7.968 0 005.5 4c-1.255 0-2.443.29-3.5.804v10A7.969 7.969 0 015.5 14c1.669 0 3.218.51 4.5 1.385A7.962 7.962 0 0114.5 14c1.255 0 2.443.29 3.5.804v-10A7.968 7.968 0 0014.5 4c-1.255 0-2.443.29-3.5.804V12a1 1 0 11-2 0V4.804z"/>
                     </svg>
                     <h3>Resumo Executivo</h3>
                 </div>
-                <p id="summary-executive" class="text-sm" style="line-height: 1.6;"></p>
+                <div id="summary-executive" class="text-sm" style="line-height: 1.6;"></div>
             </div>
             
             <div class="card">
@@ -1135,67 +1145,8 @@
                 document.getElementById('generate-summary-btn').classList.add('hidden');
                 document.getElementById('summary-content').classList.remove('hidden');
                 
-                // Resumo Executivo
-                document.getElementById('summary-executive').textContent = meeting.summary.executive_summary || meeting.summary.general || 'Resumo não disponível';
-                
-                // Decisões (novo formato)
-                if (meeting.summary.decisions && Array.isArray(meeting.summary.decisions) && typeof meeting.summary.decisions[0] === 'object') {
-                    // Novo formato
-                    document.getElementById('summary-decisions').innerHTML = meeting.summary.decisions
-                        .map(d => {
-                            if (d.decision === "Nenhuma decisão formal registrada nesta reunião") {
-                                return `<p style="opacity: 0.7; font-style: italic;">• ${d.decision}</p>`;
-                            }
-                            let html = `<div style="margin-bottom: 1rem;">
-                                <p style="font-weight: 600; margin-bottom: 0.25rem;">• ${d.decision}</p>`;
-                            if (d.context) html += `<p style="opacity: 0.7; margin-left: 1rem; font-size: 0.875rem;">Contexto: ${d.context}</p>`;
-                            if (d.impact) html += `<p style="opacity: 0.7; margin-left: 1rem; font-size: 0.875rem;">Impacto: ${d.impact}</p>`;
-                            html += `</div>`;
-                            return html;
-                        }).join('');
-                } else {
-                    // Formato antigo (compatibilidade)
-                    document.getElementById('summary-decisions').innerHTML = (meeting.summary.decisions || [])
-                        .map(decision => `<p>• ${decision}</p>`).join('');
-                }
-                
-                // Ações (novo formato)
-                if (meeting.summary.actions && Array.isArray(meeting.summary.actions) && typeof meeting.summary.actions[0] === 'object') {
-                    // Novo formato
-                    document.getElementById('summary-actions').innerHTML = meeting.summary.actions
-                        .map(a => {
-                            if (a.action === "Nenhuma ação específica definida nesta reunião") {
-                                return `<p style="opacity: 0.7; font-style: italic;">• ${a.action}</p>`;
-                            }
-                            return `<p style="margin-bottom: 0.5rem;">• ${a.action}${a.responsible ? ` - <strong>Responsável:</strong> ${a.responsible}` : ''}</p>`;
-                        }).join('');
-                } else {
-                    // Formato antigo (compatibilidade)
-                    document.getElementById('summary-actions').innerHTML = (meeting.summary.actions || [])
-                        .map(action => `<p>• ${action}</p>`).join('');
-                }
-                
-                // Principais Pontos (novo formato com categorias)
-                if (meeting.summary.key_points && typeof meeting.summary.key_points === 'object') {
-                    // Novo formato
-                    let pointsHTML = '';
-                    for (const [category, points] of Object.entries(meeting.summary.key_points)) {
-                        pointsHTML += `<div style="margin-bottom: 1rem;">
-                            <p style="font-weight: 600; color: #eab308; margin-bottom: 0.5rem;">${category}:</p>
-                            <ul style="margin-left: 1rem;">
-                                ${points.map(p => `<li style="margin-bottom: 0.25rem;">• ${p}</li>`).join('')}
-                            </ul>
-                        </div>`;
-                    }
-                    document.getElementById('summary-points').innerHTML = pointsHTML;
-                } else {
-                    // Formato antigo (compatibilidade)
-                    document.getElementById('summary-points').innerHTML = (meeting.summary.points || [])
-                        .map(point => `<li>• ${point}</li>`).join('');
-                }
-                
-                // Transcrição
-                document.getElementById('transcript-text').textContent = meeting.summary.full_transcript || meeting.transcript || 'Transcrição não disponível';
+                // Renderizar resumo
+                renderSummary(meeting.summary, meeting.transcript || '');
             } else {
                 document.getElementById('generate-summary-btn').classList.remove('hidden');
                 document.getElementById('summary-content').classList.add('hidden');
@@ -1426,6 +1377,94 @@
             return buffer;
         }
         
+        // Função para renderizar resumo (suporta formato novo e antigo)
+        function renderSummary(summary, transcript = '') {
+            // Informações da Reunião
+            if (summary.meeting_info) {
+                let infoHTML = `
+                    <p style="margin-bottom: 0.5rem;"><strong>Data:</strong> ${summary.meeting_info.date || 'Não informada'}</p>
+                    <p style="margin-bottom: 0.5rem;"><strong>Duração:</strong> ${summary.meeting_info.duration_minutes || 0} minutos</p>
+                    <p style="margin-bottom: 0.5rem;"><strong>Participantes:</strong> ${summary.meeting_info.participants || 'Não informados'}</p>
+                    <p style="margin-bottom: 0.5rem;"><strong>Tipo:</strong> ${summary.meeting_info.meeting_type || 'Não identificado'}</p>
+                `;
+                if (summary.meeting_info.context) {
+                    infoHTML += `<p style="margin-bottom: 0.5rem;"><strong>Contexto:</strong> ${summary.meeting_info.context}</p>`;
+                }
+                document.getElementById('meeting-info').innerHTML = infoHTML;
+            } else {
+                document.getElementById('meeting-info').innerHTML = '<p style="opacity: 0.7; font-style: italic;">Informações não disponíveis</p>';
+            }
+            
+            // Resumo Executivo
+            const execDiv = document.getElementById('summary-executive');
+            if (typeof summary.executive_summary === 'object' && summary.executive_summary !== null) {
+                // Formato novo estruturado
+                let execHTML = '';
+                if (summary.executive_summary.context_and_purpose) {
+                    execHTML += `<p style="margin-bottom: 1rem;"><strong>Contexto e Propósito:</strong><br>${summary.executive_summary.context_and_purpose}</p>`;
+                }
+                if (summary.executive_summary.conversation_development) {
+                    execHTML += `<p style="margin-bottom: 1rem;"><strong>Desenvolvimento:</strong><br>${summary.executive_summary.conversation_development}</p>`;
+                }
+                if (summary.executive_summary.emotional_dynamics) {
+                    execHTML += `<p style="margin-bottom: 1rem;"><strong>Dinâmica Emocional:</strong><br>${summary.executive_summary.emotional_dynamics}</p>`;
+                }
+                if (summary.executive_summary.key_revelations) {
+                    execHTML += `<p style="margin-bottom: 1rem;"><strong>Principais Revelações:</strong><br>${summary.executive_summary.key_revelations}</p>`;
+                }
+                if (summary.executive_summary.conclusion) {
+                    execHTML += `<p style="margin-bottom: 0;"><strong>Conclusão:</strong><br>${summary.executive_summary.conclusion}</p>`;
+                }
+                execDiv.innerHTML = execHTML;
+            } else {
+                // Formato antigo ou string simples
+                execDiv.textContent = summary.executive_summary || summary.general || 'Resumo não disponível';
+            }
+            
+            // Decisões
+            document.getElementById('summary-decisions').innerHTML = summary.decisions
+                .map(d => {
+                    if (d.decision && d.decision.includes("Nenhuma decisão")) {
+                        return `<p style="opacity: 0.7; font-style: italic;">• ${d.decision}</p>`;
+                    }
+                    let html = `<div style="margin-bottom: 1rem;">
+                        <p style="font-weight: 600; margin-bottom: 0.25rem;">• ${d.decision || d}</p>`;
+                    if (d.context) html += `<p style="opacity: 0.7; margin-left: 1rem; font-size: 0.875rem;">Contexto: ${d.context}</p>`;
+                    if (d.impact) html += `<p style="opacity: 0.7; margin-left: 1rem; font-size: 0.875rem;">Impacto: ${d.impact}</p>`;
+                    html += `</div>`;
+                    return html;
+                }).join('');
+            
+            // Ações
+            document.getElementById('summary-actions').innerHTML = summary.actions
+                .map(a => {
+                    if (a.action && a.action.includes("Nenhuma ação")) {
+                        return `<p style="opacity: 0.7; font-style: italic;">• ${a.action}</p>`;
+                    }
+                    return `<p style="margin-bottom: 0.5rem;">• ${a.action || a}${a.responsible ? ` - <strong>Responsável:</strong> ${a.responsible}` : ''}</p>`;
+                }).join('');
+            
+            // Principais Pontos
+            let pointsHTML = '';
+            if (summary.key_points && typeof summary.key_points === 'object') {
+                for (const [category, points] of Object.entries(summary.key_points)) {
+                    pointsHTML += `<div style="margin-bottom: 1rem;">
+                        <p style="font-weight: 600; color: #eab308; margin-bottom: 0.5rem;">${category}:</p>
+                        <ul style="margin-left: 1rem;">
+                            ${(Array.isArray(points) ? points : [points]).map(p => `<li style="margin-bottom: 0.25rem;">• ${p}</li>`).join('')}
+                        </ul>
+                    </div>`;
+                }
+            } else if (Array.isArray(summary.points)) {
+                // Formato antigo
+                pointsHTML = '<ul>' + summary.points.map(p => `<li style="margin-bottom: 0.25rem;">• ${p}</li>`).join('') + '</ul>';
+            }
+            document.getElementById('summary-points').innerHTML = pointsHTML || '<p style="opacity: 0.7;">Nenhum ponto registrado</p>';
+            
+            // Transcrição
+            document.getElementById('transcript-text').textContent = summary.full_transcript || transcript || 'Transcrição não disponível';
+        }
+        
         async function generateSummary() {
             const meeting = await getMeeting(currentMeetingId);
             
@@ -1496,7 +1535,9 @@
                 const summary = await generateSummaryFromTranscript(
                     fullTranscript, 
                     meeting.participants || '', 
-                    meeting.title || ''
+                    meeting.title || '',
+                    meeting.date || '',
+                    meeting.duration || 0
                 );
                 console.log('Resumo gerado:', summary);
                 
@@ -1508,46 +1549,8 @@
                 document.getElementById('loading-summary').classList.add('hidden');
                 document.getElementById('summary-content').classList.remove('hidden');
                 
-                // Resumo Executivo
-                document.getElementById('summary-executive').textContent = summary.executive_summary;
-                
-                // Decisões (novo formato)
-                document.getElementById('summary-decisions').innerHTML = summary.decisions
-                    .map(d => {
-                        if (d.decision === "Nenhuma decisão formal registrada nesta reunião") {
-                            return `<p style="opacity: 0.7; font-style: italic;">• ${d.decision}</p>`;
-                        }
-                        let html = `<div style="margin-bottom: 1rem;">
-                            <p style="font-weight: 600; margin-bottom: 0.25rem;">• ${d.decision}</p>`;
-                        if (d.context) html += `<p style="opacity: 0.7; margin-left: 1rem; font-size: 0.875rem;">Contexto: ${d.context}</p>`;
-                        if (d.impact) html += `<p style="opacity: 0.7; margin-left: 1rem; font-size: 0.875rem;">Impacto: ${d.impact}</p>`;
-                        html += `</div>`;
-                        return html;
-                    }).join('');
-                
-                // Ações (novo formato)
-                document.getElementById('summary-actions').innerHTML = summary.actions
-                    .map(a => {
-                        if (a.action === "Nenhuma ação específica definida nesta reunião") {
-                            return `<p style="opacity: 0.7; font-style: italic;">• ${a.action}</p>`;
-                        }
-                        return `<p style="margin-bottom: 0.5rem;">• ${a.action}${a.responsible ? ` - <strong>Responsável:</strong> ${a.responsible}` : ''}</p>`;
-                    }).join('');
-                
-                // Principais Pontos (novo formato com categorias)
-                let pointsHTML = '';
-                for (const [category, points] of Object.entries(summary.key_points)) {
-                    pointsHTML += `<div style="margin-bottom: 1rem;">
-                        <p style="font-weight: 600; color: #eab308; margin-bottom: 0.5rem;">${category}:</p>
-                        <ul style="margin-left: 1rem;">
-                            ${points.map(p => `<li style="margin-bottom: 0.25rem;">• ${p}</li>`).join('')}
-                        </ul>
-                    </div>`;
-                }
-                document.getElementById('summary-points').innerHTML = pointsHTML;
-                
-                // Transcrição
-                document.getElementById('transcript-text').textContent = summary.full_transcript || fullTranscript;
+                // Renderizar resumo
+                renderSummary(summary, fullTranscript);
                 
                 console.log('=== RESUMO CONCLUÍDO COM SUCESSO ===');
                 
@@ -1630,7 +1633,7 @@
             }
         }
         
-        async function generateSummaryFromTranscript(transcript, participants = '', title = '') {
+        async function generateSummaryFromTranscript(transcript, participants = '', title = '', date = '', duration = 0) {
             const apiKey = localStorage.getItem('groq_api_key');
             
             console.log('===== INICIANDO GERAÇÃO DE RESUMO =====');
@@ -1639,6 +1642,7 @@
             console.log('Tamanho da transcrição:', transcript.length);
             console.log('Participantes:', participants || 'não informado');
             console.log('Título:', title || 'não informado');
+            console.log('Duração:', duration, 'ms');
             
             if (!apiKey || apiKey.length < 20) {
                 alert('API Key inválida ou não configurada!\n\nClique no ícone ⚙️ para configurar.');
@@ -1646,64 +1650,131 @@
             }
             
             // Transcrição já vem limpa (sem timestamps)
-            // Limitar tamanho se muito grande (aumentado para 15000 para resumos mais detalhados)
+            // NÃO truncar - precisa da transcrição completa para o novo formato
             let transcriptToSend = transcript;
-            if (transcript.length > 15000) {
-                transcriptToSend = transcript.substring(0, 15000);
-                console.log('Transcrição truncada para 15000 caracteres');
-            }
+            console.log('Transcrição completa enviada:', transcript.length, 'caracteres');
             
-            const participantsInfo = participants ? `\n\nParticipantes: ${participants}` : '';
-            const titleInfo = title ? `\n\nTítulo da reunião: ${title}` : '';
+            const durationMinutes = Math.round(duration / 60000);
+            const dateFormatted = date ? new Date(date).toLocaleString('pt-BR', {
+                day: '2-digit',
+                month: '2-digit', 
+                year: 'numeric'
+            }) : '';
             
-            const systemMsg = `Você é um assistente especializado em criar resumos executivos detalhados de reuniões em português. 
-Seu objetivo é criar documentação profissional que capture toda a essência da conversa de forma estruturada e acionável.`;
+            const systemMsg = `Você é um assistente especializado em criar resumos executivos EXTREMAMENTE DETALHADOS de reuniões em português. 
+Você deve capturar TODOS os detalhes, exemplos específicos, nomes, situações, citações, e criar documentação profissional completa.
+Seu objetivo é criar um documento tão detalhado que alguém que não participou da reunião entenda COMPLETAMENTE tudo que aconteceu.`;
 
-            const userMsg = `Crie um resumo executivo completo da seguinte reunião:${titleInfo}${participantsInfo}
+            const userMsg = `Crie um resumo COMPLETO e EXTREMAMENTE DETALHADO da seguinte reunião:
 
-TRANSCRIÇÃO:
+DADOS DA REUNIÃO:
+- Título: ${title || 'Não informado'}
+- Data: ${dateFormatted || 'Não informada'}
+- Duração: ${durationMinutes} minutos
+- Participantes: ${participants || 'Não informados'}
+
+TRANSCRIÇÃO COMPLETA:
 ${transcriptToSend}
 
 Retorne um JSON com esta estrutura EXATA:
 {
-  "executive_summary": "Resumo detalhado de 150-300 palavras que capture a essência completa da conversa. Inclua: propósito e contexto da reunião, principais temas em ordem de importância, pontos-chave levantados por participantes, dinâmica emocional/tom (se relevante), principais conclusões, contexto importante. Este resumo deve contar uma história completa do que aconteceu, por que foi importante, e qual foi o resultado geral.",
+  "meeting_info": {
+    "date": "${dateFormatted}",
+    "duration_minutes": ${durationMinutes},
+    "participants": "${participants || 'Não informados'}",
+    "meeting_type": "[Identifique o tipo: 1:1 / Planejamento / Cliente / Operacional / Feedback / Desabafo / etc]",
+    "context": "[Breve contexto sobre o que motivou esta reunião, se identificável]"
+  },
+  
+  "executive_summary": {
+    "context_and_purpose": "[Parágrafo de 80-120 palavras] Quem são as pessoas envolvidas (cargos, relação entre elas). O que motivou esta conversa. Qual era a expectativa ou objetivo.",
+    
+    "conversation_development": "[Parágrafo de 100-150 palavras] Descreva em detalhes os principais temas abordados. Inclua EXEMPLOS ESPECÍFICOS mencionados na conversa (nomes, situações, locais). Mencione CITAÇÕES ou frases-chave que foram ditas. Descreva a evolução da conversa (como começou, como se desenvolveu, como terminou).",
+    
+    "emotional_dynamics": "[Parágrafo de 50-80 palavras] Qual era o estado emocional dos participantes. Como o tom da conversa mudou ao longo do tempo. Momentos de tensão, alívio, emoção.",
+    
+    "key_revelations": "[Parágrafo de 50-80 palavras] O que foi revelado de importante. Quais foram os insights principais. Padrões ou temas recorrentes identificados.",
+    
+    "conclusion": "[Parágrafo de 40-60 palavras] Como a conversa foi encerrada. Qual o sentimento final. O que ficou pendente ou precisa ser endereçado."
+  },
   
   "decisions": [
     {
-      "decision": "Decisão 1: descrição clara e específica",
-      "context": "Por que esta decisão foi tomada",
-      "impact": "Quem ou o que esta decisão afeta"
+      "decision": "[Decisão clara e específica]",
+      "context": "[Por que esta decisão foi tomada]",
+      "impact": "[Quem ou o que esta decisão afeta]"
     }
   ],
   
   "actions": [
     {
-      "action": "Ação 1: descrição clara e acionável",
-      "responsible": "Nome do responsável"
+      "action": "[Ação clara e acionável]",
+      "responsible": "[Nome do responsável]"
     }
   ],
   
   "key_points": {
-    "Categoria1": [
-      "Ponto importante 1",
-      "Ponto importante 2"
+    "Desafios e Dificuldades": [
+      "[Descreva situações ESPECÍFICAS mencionadas com NOMES e DETALHES]",
+      "[Outro desafio específico com detalhes]"
     ],
-    "Categoria2": [
-      "Ponto importante 3"
+    "Comportamentos e Atitudes": [
+      "[Descreva atitudes específicas mencionadas com exemplos concretos]",
+      "[Outro comportamento]"
+    ],
+    "Relacionamentos e Dinâmicas": [
+      "[Relacionamentos mencionados com nomes e situações]",
+      "[Outras dinâmicas]"
+    ],
+    "Valores e Princípios": [
+      "[Valores expressos pela pessoa]"
+    ],
+    "Sentimentos e Emoções": [
+      "[Estados emocionais específicos expressos]"
+    ],
+    "Aspirações e Objetivos": [
+      "[O que a pessoa deseja alcançar]"
     ]
   },
   
-  "full_transcript": "Transcrição organizada em parágrafos naturais, indicando quem fala quando necessário. Mantenha fidelidade ao que foi dito, mas pode limpar vícios de linguagem excessivos."
+  "full_transcript": "[OBRIGATÓRIO: Transcrição COMPLETA, PALAVRA POR PALAVRA de TUDO que foi dito. Organize em parágrafos por fala. Indique o falante. Mantenha vícios de linguagem importantes. Para ${durationMinutes} minutos, esta seção deve ter VÁRIAS páginas de texto. NÃO RESUMA. NÃO PARAFRASEIE. TRANSCREVA LITERALMENTE tudo.]"
 }
 
-INSTRUÇÕES IMPORTANTES:
-1. O RESUMO EXECUTIVO é a parte mais importante - deve ser detalhado o suficiente para dispensar a leitura da transcrição
-2. Se não houver decisões formais, use: [{"decision": "Nenhuma decisão formal registrada nesta reunião", "context": "", "impact": ""}]
-3. Se não houver ações específicas, use: [{"action": "Nenhuma ação específica definida nesta reunião", "responsible": ""}]
-4. Organize key_points em categorias temáticas (ex: Desafios, Oportunidades, Preocupações, Ideias)
-5. Use verbos de ação para actions (Agendar, Enviar, Revisar, Preparar)
-6. No resumo executivo, contextualize tudo - quem são as pessoas, qual o histórico, por que isso importa
-7. Retorne APENAS o JSON, sem markdown ou texto adicional`;
+INSTRUÇÕES ABSOLUTAMENTE CRÍTICAS:
+
+1. RESUMO EXECUTIVO (250-400 palavras TOTAIS):
+   - Divida em 5 parágrafos conforme estrutura acima
+   - Seja EXTREMAMENTE DETALHADO e ESPECÍFICO
+   - Mencione NOMES, SITUAÇÕES, LOCAIS, EXEMPLOS citados
+   - Inclua CITAÇÕES literais importantes
+   - NÃO seja genérico - seja descritivo e rico em detalhes
+   - Use exemplos concretos: "Mari relatou que ao tentar limpar a mesa com álcool em gel no primeiro dia, foi repreendida por Barbosa"
+
+2. PRINCIPAIS PONTOS (6-12 bullets bem desenvolvidos):
+   - Use EXEMPLOS ESPECÍFICOS da conversa
+   - Cite NOMES de pessoas, locais, situações
+   - Não seja vago - seja concreto
+   - "Mari mencionou que viu Caio esquecer comida no ralo e escolheu apenas higienizar sem repreendê-lo"
+
+3. TRANSCRIÇÃO COMPLETA (CRÍTICO):
+   - TRANSCREVER PALAVRA POR PALAVRA tudo que foi dito
+   - Esta é a parte MAIS IMPORTANTE para registro
+   - Para ${durationMinutes} minutos, espera-se VÁRIAS PÁGINAS
+   - NÃO resuma, NÃO parafraseie, NÃO omita
+   - Formato: "Nome: [fala completa]"
+   - Mantenha naturalidade (ok ter "então", "né", "tipo")
+
+4. DECISÕES E AÇÕES:
+   - Se não houve decisões formais: [{"decision": "Nenhuma decisão formal registrada - esta foi uma conversa de escuta e acolhimento", "context": "", "impact": ""}]
+   - Se não houve ações explícitas: [{"action": "Nenhuma ação explícita definida - recomenda-se acompanhamento posterior", "responsible": ""}]
+   - Se houve ações IMPLÍCITAS, liste-as
+
+5. QUALIDADE ESPERADA:
+   - Leitor que não participou deve entender COMPLETAMENTE apenas lendo o resumo
+   - Transcrição deve permitir "reviver" a conversa inteira
+   - Use detalhes, nomes, exemplos, citações - seja RICO e ESPECÍFICO
+
+Retorne APENAS o JSON, sem markdown ou texto adicional.`;
 
             try {
                 console.log('Fazendo chamada para API Groq...');
@@ -1715,7 +1786,7 @@ INSTRUÇÕES IMPORTANTES:
                         { role: "user", content: userMsg }
                     ],
                     temperature: 0.3,
-                    max_tokens: 4096  // Aumentado para resumos mais detalhados
+                    max_tokens: 8192  // Aumentado para resumos MUITO detalhados e transcrições completas
                 };
                 
                 console.log('Modelo:', requestBody.model);
@@ -1782,7 +1853,25 @@ INSTRUÇÕES IMPORTANTES:
                 }
                 
                 // Validar campos do novo formato
-                if (!summary.executive_summary) summary.executive_summary = "Resumo não disponível";
+                if (!summary.meeting_info) {
+                    summary.meeting_info = {
+                        date: dateFormatted || '',
+                        duration_minutes: durationMinutes,
+                        participants: participants || 'Não informados',
+                        meeting_type: 'Não identificado',
+                        context: ''
+                    };
+                }
+                
+                // executive_summary pode ser string (formato antigo) ou objeto (formato novo)
+                if (typeof summary.executive_summary === 'object' && summary.executive_summary !== null) {
+                    // Formato novo - já estruturado
+                } else if (typeof summary.executive_summary === 'string') {
+                    // Formato antigo ou string simples - manter como está
+                } else {
+                    summary.executive_summary = "Resumo não disponível";
+                }
+                
                 if (!summary.full_transcript) summary.full_transcript = transcript; // usa original se IA não retornou
                 if (!Array.isArray(summary.decisions) || summary.decisions.length === 0) {
                     summary.decisions = [{decision: "Nenhuma decisão formal registrada nesta reunião", context: "", impact: ""}];
@@ -1807,6 +1896,13 @@ INSTRUÇÕES IMPORTANTES:
                 alert('ERRO ao gerar resumo:\n\n' + error.message + '\n\nAbra o Console (F12) para ver detalhes.');
                 
                 return {
+                    meeting_info: {
+                        date: dateFormatted || '',
+                        duration_minutes: durationMinutes,
+                        participants: participants || 'Não informados',
+                        meeting_type: 'Erro',
+                        context: error.message
+                    },
                     executive_summary: "ERRO: " + error.message,
                     decisions: [{decision: "Erro ao processar", context: "", impact: ""}],
                     actions: [{action: "Abra o console (F12) para ver detalhes", responsible: ""}],
